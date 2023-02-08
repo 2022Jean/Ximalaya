@@ -1,3 +1,6 @@
+import json
+import logging
+import re
 from typing import List
 
 import requests
@@ -9,16 +12,32 @@ from selenium.webdriver import ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 
-from utils import log_print
+URL1 = 'https://www.ximalaya.com/revision/album/v1/getTracksList?albumId=%d&pageNum=1&pageSize=2000'
+URL2 = 'https://www.ximalaya.com/revision/play/v1/audio?id=%d&ptype=1'
+
+RE1 = re.compile(r"{\"index\":\d*,.*?\"joinXimi\":false}", re.MULTILINE)
+RE2 = re.compile(r"(https://.*?\.m4a)", re.MULTILINE)
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    filename='ximalaya.log',
+                    filemode='w',
+                    encoding='UTF-8'
+                    )
+
+
+def log_print(message: str, *args, **kwargs) -> None:
+    logging.info(message, *args, **kwargs)
+    print(message, *args, **kwargs)
 
 
 class StaticRequests:
+    """
+    request static web page.
+    """
 
-    def __init__(self,
-                 url: str,
-                 timeout: int = 10,
-                 headers: dict = None,
-                 ) -> None:
+    def __init__(self, url: str, timeout: int = 10, headers: dict = None, ) -> None:
 
         if headers is None:
             headers = {}
@@ -67,14 +86,16 @@ class StaticRequests:
 
 
 class DynamicRequests:
+    """
+    request dynamic web page.
+    """
 
-    def __init__(self,
-                 url: str,
-                 timeout: int = 10,
-                 headless: bool = False,
-                 eager: bool = False,
-                 none: bool = False,
-                 ) -> None:
+    def __init__(
+            self, url: str,
+            timeout: int = 10,
+            headless: bool = True,
+            eager: bool = False,
+            none: bool = False, ) -> None:
 
         self.url = url
         self.timeout = timeout
@@ -103,6 +124,10 @@ class DynamicRequests:
             log_print("WebDriverException caught:", error)
         return self.driver
 
+    def click_element(self, path: str):
+        element = self._request().find_element('xpath', path)
+        element.click()
+
     def xpath(self, path: str) -> List[str]:
         try:
             elements = self._request().find_elements(by='xpath', value=path)
@@ -118,3 +143,52 @@ class DynamicRequests:
     @property
     def text(self) -> str:
         return self._request().page_source
+
+
+def save(directory: str, content: bytes) -> None:
+    """
+    save audio file to somewhere
+    """
+    try:
+        file_name = directory.rsplit('/')[-1]
+        log_print(f'Downloading file {file_name}')
+        with open(file=directory, mode='wb') as f:
+            f.write(content)
+    except FileExistsError as exi_error:
+        log_print(f"FileExistsError: {exi_error}")
+    except PermissionError as exi_error:
+        log_print(f"PermissionError: {exi_error}")
+    except IOError as exi_error:
+        log_print(f"IOError: {exi_error}")
+    else:
+        log_print(f'Successfully save {directory}')
+
+
+def main(album_id: int, directory: str):
+    album_url: str = URL1 % album_id
+    resp1: str = DynamicRequests(album_url).text
+    items: List[dict] = [json.loads(item) for item in RE1.findall(resp1)]
+
+    for item in items:
+        title: str = item['title']
+        track_url: str = URL2 % item['trackId']
+        resp2: str = DynamicRequests(url=track_url).text
+        src: str = RE2.search(resp2).group(1)
+        resp3: bytes = StaticRequests(src).media_content
+        file_name: str = title + '.m4a'
+
+        if directory[-1] != '/':
+            path: str = directory + '/' + file_name
+        else:
+            path: str = directory + file_name
+
+        save(path, resp3)
+
+
+if __name__ == '__main__':
+    al_id = 9883350
+    dir_path = '../example'
+    try:
+        main(al_id, dir_path)
+    except Exception as e:
+        print('fail:', e)
