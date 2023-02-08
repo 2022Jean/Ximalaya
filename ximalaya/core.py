@@ -186,9 +186,6 @@ def main(album_id: int, directory: str):
 
 
 if __name__ == '__main__':
-    al_id = 9883350
-    dir_path = '../example'
-    try:
-        main(al_id, dir_path)
-    except Exception as e:
-        print('fail:', e)
+    pass
+
+# todo: 多线程下载文件
